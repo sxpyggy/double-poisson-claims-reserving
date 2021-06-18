@@ -1,0 +1,246 @@
+
+```{r}
+source("0_parameter.R")
+```
+
+See Taylor and Ashe (1983)
+
+# Mack's model
+
+```{r}
+# write.csv(cum2incr(GenIns),"./tables/genins.csv")
+(GenIns_mack <- MackChainLadder(GenIns/1000,est.sigma = "Mack"))
+GenIns_mack$sigma^2
+GenIns_mack$f
+I<-length(GenIns_mack$f)
+disp_mack<-1/(GenIns_mack$f[1:(I-1)]-1)*GenIns_mack$sigma^2
+# accident year IBNR
+(mack_acc<-data.frame(mean=summary(GenIns_mack)$ByOrigin$IBNR[-1],est_err=GenIns_mack$Mack.ParameterRisk[-1,I],pro_err=GenIns_mack$Mack.ProcessRisk[-1,I],pre_err=GenIns_mack$Mack.S.E[-1,I],cv=GenIns_mack$Mack.S.E[-1,I]/summary(GenIns_mack)$ByOrigin$IBNR[-1]))
+# write.csv(mack_acc,"./tables/1_mack.csv")
+```
+
+#  Other models (theta<-exp(SS%*%beta)
+
+## ODP/DP model
+```{r}
+## data frame
+data_mat<-as.LongTriangle(cum2incr(GenIns))
+names(data_mat)<-c("acc","dev","inc")
+data_mat$j<-as.numeric(data_mat$dev)
+data_mat$inc<-data_mat$inc/1000
+
+## ODP
+disp1 <- "~ 1"
+fix_mean = F
+K=50
+odp<-DP(data_mat = data_mat, disp = disp1, fix_mean = fix_mean, K=K, verbose=T)
+## residual plot
+# pdf("plots/residuals_odp1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(data_mat$j,sqrt(odp$DD)/sqrt(odp$theta)*sign(data_mat$inc-odp$mu),xlab="development year", ylab="deviance residual",ylim=res_lim)
+# dev.off()
+qqnorm(sqrt(odp$DD)/sqrt(odp$theta)*sign(data_mat$inc-odp$mu));abline(0,1)
+
+## DP
+disp2 <- "~ j + I(j^2)"
+dp<-DP(data_mat = data_mat, disp = disp2, fix_mean = fix_mean, K=K, verbose=T)
+## residual plot
+# pdf("plots/residuals_dp1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(data_mat$j,sqrt(dp$DD)/sqrt(dp$theta)*sign(data_mat$inc-dp$mu),xlab="development year", ylab="deviance residual",ylim=res_lim,col=2)
+# dev.off()
+qqnorm(sqrt(dp$DD)/sqrt(dp$theta)*sign(data_mat$inc-dp$mu));abline(0,1)
+
+## dispersion structure testing
+1-pchisq(dp$D-odp$D, length(dp$beta)-length(odp$beta))
+
+## compare the dispersions
+# pdf("plots/disp1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(1:max(data_mat$j),odp$disp_vary,type="b",col=1,xlab="development year",ylab="dispersion",ylim=range(dp$disp_vary))
+lines(1:max(data_mat$j),dp$disp_vary,type="b",col=2)
+# lines(2:I,disp_mack,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+```
+
+   12.36620
+11 27.78784
+21 50.40763
+31 73.81773
+41 87.26662
+51 83.28342
+61 64.16409
+71 39.90694
+81 20.03678
+91  8.12139
+
+## England and Verrall 2006
+
+```{r}
+ev<-EV(data_mat = data_mat)
+
+1-pchisq(ev$D-dp$D,length(unique(ev$theta))-length(dp$beta))
+
+par(mfrow=c(1,1), pty="s",mar=c(5,5,2,5))
+plot(data_mat$j, sqrt(ev$DD)/sqrt(ev$theta)*sign(data_mat$inc-ev$mu), xlab="development year",  ylab="deviance residual", ylim=res_lim, col=2)
+qqnorm(sqrt(ev$DD)/sqrt(ev$theta)*sign(data_mat$inc-ev$mu));abline(0,1)
+
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(1:max(data_mat$j),odp$disp_vary,type="b",col=1,xlab="development year",ylab="dispersion",ylim=range(ev$disp_vary))
+lines(1:max(data_mat$j),ev$disp_vary,type="b",col=2)
+# lines(2:I,disp_mack,type="b",col=4)
+legend("topright",c("ODP", "EV"), lty=c(1,1),col=c(1,2))
+```
+
+## parameter estimation and their s.e. 
+```{r}
+sum((odp$alpha-dp$alpha)^2)
+# pdf("plots/parameters1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(odp$alpha,type="b",ylab="estimated mean coefficients")
+lines(dp$alpha,type="b",col=2)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# pdf("plots/cov1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(sqrt(diag(solve(odp$fisher_alpha))),ylab="std err of mean coefficients",type="b",ylim=range(sqrt(diag(solve(dp$fisher_alpha))),sqrt(diag(solve(odp$fisher_alpha)))))
+lines(sqrt(diag(solve(dp$fisher_alpha))),type="b",col=2)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+```
+
+# Predictions
+
+## IBNR
+
+```{r}
+results_acc_odp<-acc_pred(I=max(as.numeric(data_mat$acc)),disp = disp1, method = "odp", alpha = odp$alpha, beta = odp$beta, fisher_alpha = odp$fisher_alpha)
+results_acc_dp<-acc_pred(I=max(as.numeric(data_mat$acc)),disp = disp2, method = "dp", alpha = dp$alpha, beta = dp$beta, fisher_alpha = dp$fisher_alpha)
+results_acc_ev<-acc_pred(I=max(as.numeric(data_mat$acc)),disp = NULL, method = "ev", alpha = ev$alpha, beta = NULL, fisher_alpha = ev$fisher_alpha)
+
+# write.csv(results_acc_dp,"./tables/1_dp.csv")
+# write.csv(results_acc_odp,"./tables/1_odp.csv")
+# write.csv(results_acc_ev,"./tables/1_ev.csv")
+```
+
+## IBNR errors
+
+```{r}
+mean_lim<-range(results_acc_odp$mean[-I],results_acc_dp$mean[-I])
+
+# pdf("plots/acc_mean1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$mean[-I],type="b",ylim=mean_lim,xlab="accident year",ylab="IBNR")
+lines(2:I,results_acc_dp$mean[-I],type="b",col=2)
+# lines(2:I,mack_acc$mean,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+y_lim<-range(results_acc_dp[-I,2:4],results_acc_odp[-I,2:4])
+
+# pdf("plots/acc_pre1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$pre_err[-I],type="b",ylim=y_lim,xlab="accident year",ylab="prediction error")
+lines(2:I,results_acc_dp$pre_err[-I],type="b",col=2)
+#lines(2:I,mack_acc$pre_err,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# pdf("plots/acc_est1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$est_err[-I],type="b",ylim=y_lim,xlab="accident year",ylab="estimation error")
+lines(2:I,results_acc_dp$est_err[-I],type="b",col=2)
+#lines(2:I,mack_acc$est_err,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# pdf("plots/acc_pro1.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$pro_err[-I],type="b",ylim=y_lim,xlab="accident year",ylab="process error")
+lines(2:I,results_acc_dp$pro_err[-I],type="b",col=2)
+#lines(2:I,mack_acc$pro_err,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+```
+
+## IBNR predictive distribution
+
+### Fisher information 
+
+```{r}
+TT<-5000
+dp_mat<-NULL
+dp_mat2<-NULL
+for (t in 1:TT){
+  bs_pred<-acc_pred2(
+  I=max(data_mat$j),
+  disp=disp2,
+  method="dp",
+  alpha=dp$alpha,
+  beta=dp$beta,
+  fisher_alpha=dp$fisher_alpha,
+  fisher_beta=dp$fisher_beta,
+  seed=t)
+  if(t==1) dp_mat<-bs_pred
+  if(t>1) dp_mat<-cbind(dp_mat,bs_pred$inc)
+  if (is.integer(t/50)==T) print(t)
+}
+
+dp_BS<-dp_mat[,1:2]
+dp_BS$mean<-apply(dp_mat[,-c(1:2)],1,mean)
+dp_BS$var<-apply(dp_mat[,-c(1:2)],1,var)
+dp_BS_acc<-matrix(NA,ncol=TT,nrow=I-1)
+for (i in 1:TT){
+  dp_BS_acc[,i]<-aggregate(dp_mat[,2+i],by=list(dp_mat$acc),sum)[,2]
+}
+cbind(aggregate(dp_BS$mean, by=list(dp_BS$acc),sum) ,sqrt(apply(dp_BS_acc, 1, var)))
+```
+
+### Bootstrap
+
+```{r}
+for (t in 1:TT){
+  bs_mat<-BS(data_mat = data_mat, 
+             mu=dp$mu,
+             theta=dp$theta, 
+             seed=t)
+  bs_dp<-DP(data_mat = bs_mat, 
+            disp = disp2, 
+            fix_mean =T, 
+            K=5, 
+            verbose = F)
+  bs_pred<-BS_pred(I=max(as.numeric(data_mat$acc)),
+                   disp = disp2, 
+                   method = "dp", 
+                   alpha = bs_dp$alpha, 
+                   beta = dp$beta, 
+                   seed=t)
+  if(t==1) dp_mat2<-bs_pred
+  if(t>1) dp_mat2<-cbind(dp_mat2,bs_pred$inc)
+  if (is.integer(t/50)==T) {print(t)}
+}
+
+dp_BS2<-dp_mat2[,1:2]
+dp_BS2$mean<-apply(dp_mat2[,-c(1:2)],1,mean)
+dp_BS2$var<-apply(dp_mat2[,-c(1:2)],1,var)
+dp_BS_acc2<-matrix(NA,ncol=TT,nrow=I-1)
+for (i in 1:TT){
+  dp_BS_acc2[,i]<-aggregate(dp_mat2[,2+i],by=list(dp_mat2$acc),sum)[,2]
+}
+cbind(aggregate(dp_BS2$mean, by=list(dp_BS2$acc),sum) ,sqrt(apply(dp_BS_acc2, 1, var)))
+
+sim_total<-apply(dp_BS_acc2, 2, sum)
+
+# pdf("plots/1-taylor-total.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+hist(sim_total,xlab="IBNR (in thousands)",ylab="frequency",main="predictive distribution of IBNR (in thousands)",freq = F)
+lines(density(sim_total))
+points(c(mean(sim_total),quantile(sim_total,0.95)),c(0,0),pch=c(1,2))
+legend("topright",c("mean","95% VaR"),pch=c(1,2))
+box()
+# dev.off()
+```
+
+

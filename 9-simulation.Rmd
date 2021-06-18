@@ -1,0 +1,317 @@
+# analysis of a single triangle
+
+## CL
+
+```{r}
+source("0_parameter.R")
+cum_CF<-read.csv("./Simulation.Machine.V1/cum_cf/cum_CF_1.csv")[,-1]
+### Mack chain-ladder analysis
+tri_dat <- array(NA, dim(cum_CF))
+reserves <- data.frame(array(0, dim=c(12+1,3)))
+reserves <- setNames(reserves, c("true Res.","CL Res.","MSEP^(1/2)"))
+for (i in 0:11){
+  for (j in 0:(11-i)){tri_dat[i+1,j+1] <- cum_CF[i+1,j+1]}
+  reserves[i+1,1] <- cum_CF[i+1,12]-cum_CF[i+1,12-i]
+}
+reserves[13,1] <- sum(reserves[1:12,1])
+tri_dat <- as.triangle(as.matrix(tri_dat))
+dimnames(tri_dat)=list(origin=1:12, dev=1:12)
+Mack <- MackChainLadder(tri_dat, est.sigma="Mack")
+for (i in 0:11){reserves[i+1,2] <- round(Mack$FullTriangle[i+1,12]-Mack$FullTriangle[i+1,12-i])}
+reserves[13,2] <- sum(reserves[1:12,2])
+reserves[1:12,3] <- round(Mack$Mack.S.E[,12])
+reserves[13,3] <- round(Mack$Total.Mack.S.E)
+reserves  # true reserves, chain-ladder reserves and square-rooted MSEP
+
+CL_ODP_boot<-BootChainLadder(tri_dat,R=999,process.distr = c("od.pois"))
+```
+
+## ODP/DP/EV(adjusted ODP)
+
+```{r}
+data_mat<-as.LongTriangle(cum2incr(tri_dat))
+names(data_mat)<-c("acc","dev","inc")
+data_mat$j<-as.numeric(data_mat$dev)
+data_mat$inc<-data_mat$inc
+
+I<-max(data_mat$j)
+
+## ODP
+disp1 <- "~ 1"
+fix_mean = F
+K=50
+odp<-DP(data_mat = data_mat, disp = disp1, fix_mean = fix_mean, K=K, verbose=T)
+
+## residual plot
+# pdf("plots/residuals_odp_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(data_mat$j,sqrt(odp$DD)/sqrt(odp$theta)*sign(data_mat$inc-odp$mu),xlab="development year", ylab="deviance residual",ylim=res_lim)
+# dev.off()
+qqnorm(sqrt(odp$DD)/sqrt(odp$theta)*sign(data_mat$inc-odp$mu));abline(0,1)
+
+## DP
+disp2 <- "~ I(j==1)"
+dp<-DP(data_mat = data_mat, disp = disp2, fix_mean = fix_mean, K=K, verbose=T)
+## residual plot
+# pdf("plots/residuals_dp_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(data_mat$j,sqrt(dp$DD)/sqrt(dp$theta)*sign(data_mat$inc-dp$mu),xlab="development year", ylab="deviance residual",ylim=res_lim,col=2)
+# dev.off()
+qqnorm(sqrt(dp$DD)/sqrt(dp$theta)*sign(data_mat$inc-dp$mu));abline(0,1)
+
+## dispersion structure testing
+1-pchisq(dp$D-odp$D, length(dp$beta)-length(odp$beta))
+
+## compare the dispersions
+# pdf("plots/disp_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(1:max(data_mat$j),odp$disp_vary,type="b",col=1,xlab="development year",ylab="dispersion",ylim=range(dp$disp_vary))
+lines(1:max(data_mat$j),dp$disp_vary,type="b",col=2)
+# lines(2:I,disp_mack,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+## England and Verrall 2006
+
+ev<-EV(data_mat = data_mat)
+
+1-pchisq(ev$D-dp$D,length(unique(ev$theta))-length(dp$beta))
+
+par(mfrow=c(1,1), pty="s",mar=c(5,5,2,5))
+plot(data_mat$j, sqrt(ev$DD)/sqrt(ev$theta)*sign(data_mat$inc-ev$mu), xlab="development year",  ylab="deviance residual", ylim=res_lim, col=2)
+qqnorm(sqrt(ev$DD)/sqrt(ev$theta)*sign(data_mat$inc-ev$mu));abline(0,1)
+
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(1:max(data_mat$j),odp$disp_vary,type="b",col=1,xlab="development year",ylab="dispersion",ylim=range(ev$disp_vary))
+lines(1:max(data_mat$j),ev$disp_vary,type="b",col=2)
+# lines(2:I,disp_mack,type="b",col=4)
+legend("topright",c("ODP", "EV"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+## estimation and their s.e. comparison
+
+sum((odp$alpha-dp$alpha)^2)
+# pdf("plots/parameters_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(odp$alpha,type="b",ylab="estimated mean coefficients")
+lines(dp$alpha,type="b",col=2)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# pdf("plots/cov_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(sqrt(diag(solve(odp$fisher_alpha))),ylab="std err of mean coefficients",type="b",ylim=range(sqrt(diag(solve(dp$fisher_alpha))),sqrt(diag(solve(odp$fisher_alpha)))))
+lines(sqrt(diag(solve(dp$fisher_alpha))),type="b",col=2)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# predictions
+
+## IBNR
+
+results_acc_odp<-acc_pred(I=max(as.numeric(data_mat$acc)),disp = disp1, method = "odp", alpha = odp$alpha, beta = odp$beta, fisher_alpha = odp$fisher_alpha)
+results_acc_dp<-acc_pred(I=max(as.numeric(data_mat$acc)),disp = disp2, method = "dp", alpha = dp$alpha, beta = dp$beta, fisher_alpha = dp$fisher_alpha)
+results_acc_ev<-acc_pred(I=max(as.numeric(data_mat$acc)),disp = NULL, method = "ev", alpha = ev$alpha, beta = NULL, fisher_alpha = ev$fisher_alpha)
+
+## IBNR errors
+
+mean_lim<-range(results_acc_odp$mean[-I],results_acc_dp$mean[-I])
+
+# pdf("plots/acc_mean_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$mean[-I],type="b",ylim=mean_lim,xlab="accident year",ylab="IBNR")
+lines(2:I,results_acc_dp$mean[-I],type="b",col=2)
+# lines(2:I,mack_acc$mean,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+y_lim<-range(results_acc_dp[-I,2:4],results_acc_odp[-I,2:4])
+
+# pdf("plots/acc_pre_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$pre_err[-I],type="b",ylim=y_lim,xlab="accident year",ylab="prediction error")
+lines(2:I,results_acc_dp$pre_err[-I],type="b",col=2)
+#lines(2:I,mack_acc$pre_err,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# pdf("plots/acc_est_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$est_err[-I],type="b",ylim=y_lim,xlab="accident year",ylab="estimation error")
+lines(2:I,results_acc_dp$est_err[-I],type="b",col=2)
+#lines(2:I,mack_acc$est_err,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# pdf("plots/acc_pro_sim.pdf",height =textwidth,width=textwidth,pointsize =11)
+par(mfrow=c(1,1),pty="s",mar=c(5,5,2,5))
+plot(2:I,results_acc_odp$pro_err[-I],type="b",ylim=y_lim,xlab="accident year",ylab="process error")
+lines(2:I,results_acc_dp$pro_err[-I],type="b",col=2)
+#lines(2:I,mack_acc$pro_err,type="b",col=4)
+legend("topright",c("ODP", "DP"), lty=c(1,1),col=c(1,2))
+# dev.off()
+
+# write.csv(results_acc_odp,"./tables/results_odp_sim.csv")
+# write.csv(results_acc_dp,"./tables/results_dp_sim.csv")
+# write.csv(reserves,"./tables/results_cl_sim.csv")
+# write.csv(results_acc_ev,"./tables/results_ev_sim.csv")
+```
+
+# bootstrapping for 1000 triangles
+
+```{r, eval= FALSE}
+S<-1000
+results<-data.frame(matrix(NA, ncol=5, nrow= 1000))
+names(results)<-c("IBNR","CL","ODP","EV","DP")
+for (s in 89:S){
+  tt<-Sys.time()
+  print(s)
+  # true IBNR
+  
+  cum<-read.csv(paste("./Simulation.Machine.V1/cum_cf/cum_CF_",s,".csv",sep=""))[,-1]
+  up_now<-NULL
+  I<-ncol(cum)
+  for (j in 1:I){
+      up_now[j]<-cum[j,I-j+1]
+    }
+  IBNR<-sum(c(cum[,12]-up_now))
+  results$IBNR[s]<-IBNR
+
+cum_CF<-cum
+
+# CL
+
+tri_dat <- array(NA, dim(cum_CF))
+for (i in 0:11){
+  for (j in 0:(11-i)){tri_dat[i+1,j+1] <- cum_CF[i+1,j+1]}
+}
+tri_dat <- as.triangle(as.matrix(tri_dat))
+dimnames(tri_dat)=list(origin=1:12, dev=1:12)
+CL_ODP_boot<-BootChainLadder(tri_dat,R=999,process.distr = c("od.pois"))
+
+## glm data
+
+data_mat<-as.LongTriangle(cum2incr(tri_dat))
+names(data_mat)<-c("acc","dev","inc")
+data_mat$j<-as.numeric(data_mat$dev)
+data_mat$inc<-data_mat$inc
+if (sum(data_mat$inc<0)==0){ 
+
+## ODP
+
+disp1 <- "~ 1"
+fix_mean = F
+K=50
+odp<-DP(data_mat = data_mat, disp = disp1, fix_mean = fix_mean, K=K, verbose=F)
+
+## DP
+
+disp2 <- "~ I(j==1)"
+dp<-DP(data_mat = data_mat, disp = disp2, fix_mean = fix_mean, K=K, verbose=F)
+
+## EV
+
+ev<-EV(data_mat = data_mat)
+
+## Bootstrap
+
+TT<-1000
+dp_mat<-NULL
+odp_mat<-dp_mat;ev_mat<-dp_mat
+
+## odp
+for (t in 1:TT){
+  bs_mat<-BS(data_mat = data_mat, mu=odp$mu,
+             theta=odp$theta, seed=t)
+  bs_odp<-DP(data_mat = bs_mat, disp = disp1, 
+            fix_mean =T, K=5, verbose = F)
+  bs_pred<-BS_pred(I=max(as.numeric(data_mat$acc)),
+                   disp = disp1, method = "odp", alpha = 
+                     bs_odp$alpha, beta = odp$beta, 
+                   seed=t)
+  if(t==1) odp_mat<-bs_pred
+  if(t>1) odp_mat<-cbind(odp_mat,bs_pred$inc)
+  if (is.integer(t/50)==T) print(t)
+}
+
+odp_BS<-odp_mat[,1:2]
+odp_BS$mean<-apply(odp_mat[,-c(1:2)],1,mean)
+odp_BS$var<-apply(odp_mat[,-c(1:2)],1,var)
+odp_BS_acc<-matrix(NA,ncol=TT,nrow=I-1)
+for (i in 1:TT){
+  odp_BS_acc[,i]<-aggregate(odp_mat[,2+i],by=list(odp_mat$acc),sum)[,2]
+}
+
+## dp
+
+for (t in 1:TT){
+  bs_mat<-BS(data_mat = data_mat, mu=dp$mu,
+             theta=dp$theta, seed=t)
+  bs_dp<-DP(data_mat = bs_mat, disp = disp2, 
+            fix_mean =T, K=5, verbose = F)
+  bs_pred<-BS_pred(I=max(as.numeric(data_mat$acc)),
+                   disp = disp2, method = "dp", alpha = 
+                     bs_dp$alpha, beta = dp$beta, 
+                   seed=t)
+  if(t==1) dp_mat<-bs_pred
+  if(t>1) dp_mat<-cbind(dp_mat,bs_pred$inc)
+  if (is.integer(t/50)==T) print(t)
+}
+
+dp_BS<-dp_mat[,1:2]
+dp_BS$mean<-apply(dp_mat[,-c(1:2)],1,mean)
+dp_BS$var<-apply(dp_mat[,-c(1:2)],1,var)
+dp_BS_acc<-matrix(NA,ncol=TT,nrow=I-1)
+for (i in 1:TT){
+  dp_BS_acc[,i]<-aggregate(dp_mat[,2+i],by=list(dp_mat$acc),sum)[,2]
+}
+
+## ev
+
+for (t in 1:TT){
+  bs_mat<-BS(data_mat = data_mat, mu=ev$mu,
+             theta=ev$theta, seed=t)
+  bs_ev<-EV(data_mat = bs_mat)
+  bs_pred<-BS_pred(I=max(as.numeric(data_mat$acc)),
+                   disp = NULL, method = "ev", alpha = 
+                     bs_ev$alpha, beta = ev$theta, 
+                   seed=t)
+  if(t==1) ev_mat<-bs_pred
+  if(t>1) ev_mat<-cbind(ev_mat,bs_pred$inc)
+  if (is.integer(t/50)==T) print(t)
+}
+
+ev_BS<-ev_mat[,1:2]
+ev_BS$mean<-apply(ev_mat[,-c(1:2)],1,mean)
+ev_BS$var<-apply(ev_mat[,-c(1:2)],1,var)
+ev_BS_acc<-matrix(NA,ncol=TT,nrow=I-1)
+for (i in 1:TT){
+  ev_BS_acc[,i]<-aggregate(ev_mat[,2+i],by=list(ev_mat$acc),sum)[,2]
+}
+
+
+## comparison
+
+results$CL[s]<-summary(CL_ODP_boot)$Totals[5,]
+results$ODP[s]<-quantile(apply(odp_BS_acc, 2,sum),0.75)
+results$DP[s]<-quantile(apply(dp_BS_acc, 2, sum),0.75)
+results$EV[s]<-quantile(apply(ev_BS_acc, 2, sum),0.75)
+write.csv(results,"./tables//results.csv")
+}
+write.csv(data_mat,"./tables/data_mat.csv")
+print(tt-Sys.time())
+}
+```
+
+##  comparison of ODP, DP, CL, EV (adjusted ODP)
+
+```{r}
+results<-read.csv("./tables/results.csv")
+names(results)
+sum(results$IBNR>results$ODP,na.rm=T)/nrow(results)
+sum(results$IBNR>results$DP,na.rm=T)/nrow(results)
+sum(results$IBNR>results$CL,na.rm=T)/nrow(results)
+sum(results$IBNR>results$EV,na.rm=T)/nrow(results)
+```
+
+

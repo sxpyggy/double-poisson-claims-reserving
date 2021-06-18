@@ -1,0 +1,60 @@
+```{r}
+
+stirling_log<-function(y) 0.5*log(2*pi)+(y+0.5)*log(y)-y
+
+f_approx<-function(y,mu,theta)
+  ifelse(y==0, theta^-0.5*exp(-mu/theta),
+  exp(-0.5*log(theta)-mu/theta
+      -y+y*log(y)-ifelse(y>170,stirling_log(y),log(factorial(y)))
+      +y/theta*(1+log(mu)-log(y)))
+  )
+
+y_sample<-0:50000
+mu_vec<-c(0.1,1,10,50,100,200,500,1000,2000,4000)
+
+theta<-1
+c_vec_1<-rep(NA,length(mu_vec))
+for (i in 1:length(mu_vec)){
+  c_vec_1[i]<-1/sum(f_approx(y_sample,mu_vec[i],theta))
+}
+c_vec_1
+
+theta<-10
+c_vec_10<-rep(NA,length(mu_vec))
+for (i in 1:length(mu_vec)){
+  c_vec_10[i]<-1/sum(f_approx(y_sample,mu_vec[i],theta))
+}
+c_vec_10
+
+theta<-50
+c_vec_50<-rep(NA,length(mu_vec))
+
+for (i in 1:length(mu_vec)){
+  c_vec_50[i]<-1/sum(f_approx(y_sample,mu_vec[i],theta))
+}
+c_vec_50
+
+theta<-100
+c_vec_100<-rep(NA,length(mu_vec))
+for (i in 1:length(mu_vec)){
+  c_vec_100[i]<-1/sum(f_approx(y_sample,mu_vec[i],theta))
+}
+c_vec_100
+
+theta<-1000
+c_vec_1000<-rep(NA,length(mu_vec))
+for (i in 1:length(mu_vec)){
+  c_vec_1000[i]<-1/sum(f_approx(y_sample,mu_vec[i],theta))
+}
+c_vec_1000
+
+
+app<-cbind(mu_vec,c_vec_1,c_vec_10,c_vec_50,c_vec_100,c_vec_1000)
+
+write.csv(app,"./tables/app.csv")
+
+matplot(log(mu_vec),cbind(c_vec_1,c_vec_10,c_vec_50,c_vec_100),
+        type = "b",lwd=2, xlab="log mu", ylab="normalizing constant")
+legend("topright",c("theta=1","theta=10","theta=50","theta=100"),
+       lty=1:4,col=1:4,lwd=2)
+```
